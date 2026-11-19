@@ -1,12 +1,12 @@
 
-name: Build MyFolio APK
+name: Build MyFolio V9.1 APK
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/build-apk.yml'
-      - 'MyFolio-V8-Upload-GitHub.zip'
+      - 'MyFolio-V9.1-Upload-GitHub.zip'
   workflow_dispatch:
 
 permissions:
@@ -18,20 +18,18 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout project
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract and fix Android source
+      - name: Extract Android project
         shell: bash
         run: |
           set -euo pipefail
-          unzip -oq MyFolio-V8-Upload-GitHub.zip -x '.github/workflows/*'
+          unzip -oq MyFolio-V9.1-Upload-GitHub.zip -x '.github/workflows/*'
           test -s app/src/main/assets/index.html
-          test -f app/src/main/java/com/myfolio/app/MainActivity.java
-          if ! grep -qF 'import android.widget.Toast;' app/src/main/java/com/myfolio/app/MainActivity.java; then
-            sed -i '/^package .*;/a import android.widget.Toast;' app/src/main/java/com/myfolio/app/MainActivity.java
-          fi
-          grep -nF 'import android.widget.Toast;' app/src/main/java/com/myfolio/app/MainActivity.java
+          test -s app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          grep -q 'MyFolio V9.1' app/src/main/assets/index.html
+          grep -q 'import android.widget.Toast;' app/src/main/java/com/myfolio/app/MainActivity.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -39,7 +37,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.9
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -47,15 +45,16 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Build APK
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MyFolio-V8-APK
+          name: MyFolio-V9.1-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 30

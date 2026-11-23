@@ -1,60 +1,62 @@
-
-name: Build MyFolio V9.1 APK
+name: Build APK from ZIP
 
 on:
   push:
-    branches: [main]
-    paths:
-      - '.github/workflows/build-apk.yml'
-      - 'MyFolio-V9.1-Upload-GitHub.zip'
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    env:
+      KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Extract Android project
-        shell: bash
+      - name: Unzip the project (finds the ZIP in the repo root)
         run: |
-          set -euo pipefail
-          unzip -oq MyFolio-V9.1-Upload-GitHub.zip -x '.github/workflows/*'
-          test -s app/src/main/assets/index.html
-          test -s app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          grep -q 'MyFolio V9.1' app/src/main/assets/index.html
-          grep -q 'import android.widget.Toast;' app/src/main/java/com/myfolio/app/MainActivity.java
+          set -e
+          mapfile -t ZIPS < <(find . -maxdepth 1 -name '*.zip' -printf '%f\n' | sort -rV)
+          FOUND=""
+          for z in "${ZIPS[@]}"; do
+            if unzip -l "$z" | grep -q 'settings.gradle'; then FOUND="$z"; break; fi
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::ไม่พบไฟล์ .zip ที่เป็นโปรเจกต์ (ต้องมี settings.gradle.kts อยู่ข้างใน) กรุณาอัปโหลดไฟล์ zip ไว้ที่หน้าแรกของ repository"
+            exit 1
+          fi
+          echo "Using $FOUND"
+          mkdir -p "$RUNNER_TEMP/proj"
+          unzip -q "$FOUND" -d "$RUNNER_TEMP/proj"
+          ROOT=$(dirname "$(find "$RUNNER_TEMP/proj" -name 'settings.gradle*' | head -n1)")
+          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
+          ls -la "$ROOT"
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: 8.10.2
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Decode keystore (only if secrets are set)
+        if: env.KS_B64 != ''
+        run: |
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Install Android SDK
-        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build debug + release APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Build APK
-        run: gradle --no-daemon --stacktrace assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: MyFolio-V9.1-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 30
+          name: MyFolio-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/**/*.apk
